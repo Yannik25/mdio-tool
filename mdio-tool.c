@@ -41,60 +41,120 @@ along with mdio-tool.  If not, see <http://www.gnu.org/licenses/>.
 #endif
 #include "mii.h"
 
+#define DEBUG		0
 #define MAX_ETH		8		/* Maximum # of interfaces */
+#define MMD_CTRL 0xD
+#define MMD_DATA 0xE
 
 static int skfd = -1;		/* AF_INET socket for ioctl() calls. */
 static struct ifreq ifr;
 
 /*--------------------------------------------------------------------*/
 
+
+
 static int mdio_read(int skfd, int location)
 {
     struct mii_data *mii = (struct mii_data *)&ifr.ifr_data;
     mii->reg_num = location;
+#if DEBUG
+	printf("R:%d\n", location);
+#endif
     if (ioctl(skfd, SIOCGMIIREG, &ifr) < 0) {
 	fprintf(stderr, "SIOCGMIIREG on %s failed: %s\n", ifr.ifr_name,
 		strerror(errno));
 	return -1;
     }
+
     return mii->val_out;
 }
 
-static void mdio_write(int skfd, int location, int value)
+static int mdio_write(int skfd, int location, int value)
 {
     struct mii_data *mii = (struct mii_data *)&ifr.ifr_data;
     mii->reg_num = location;
     mii->val_in = value;
-    if (ioctl(skfd, SIOCSMIIREG, &ifr) < 0) {
+    
+#if DEBUG
+	printf("W:%d,0x%04x\n", location, value);
+#endif
+	if (ioctl(skfd, SIOCSMIIREG, &ifr) < 0) {
 	fprintf(stderr, "SIOCSMIIREG on %s failed: %s\n", ifr.ifr_name,
 		strerror(errno));
+	return -1;
     }
+    return 0;
 }
 
-static void print_help(FILE *std)
+static int mdio_mmd_read(int skfd, int mmddev, int location)
+{	
+	int ret;
+	
+	ret = mdio_write(skfd, MMD_CTRL, mmddev);
+	if(ret == -1)
+		goto exit;
+	
+	ret = mdio_write(skfd, MMD_DATA, location);
+	if(ret == -1)
+		goto exit;
+	
+	ret = mdio_write(skfd, MMD_CTRL, 0x4000 | mmddev);
+	if(ret == -1)
+		goto exit;
+	
+	ret = mdio_read(skfd, MMD_DATA);
+
+exit:
+	return ret;	
+}
+
+static int mdio_mmd_write(int skfd, int mmddev, int location, int value)
+{	
+	int ret;
+		
+	ret = mdio_write(skfd, MMD_CTRL, mmddev);
+	if(ret == -1)
+		goto exit;
+
+	ret = mdio_write(skfd, MMD_DATA, location);
+	if(ret == -1)
+		goto exit;
+
+	ret = mdio_write(skfd, MMD_CTRL, 0x4000 | mmddev);
+	if(ret == -1)
+		goto exit;
+
+	ret = mdio_write(skfd, MMD_DATA, value);
+exit:
+	return ret;
+}
+
+static void print_help(char *name, FILE *std)
 {
-	fprintf(std, "Usage mii-tool -d[dev] [-r/-w] -l[len] -p[phyadd] -a[reg] -v[val]\n");
-        fprintf(std, "               -h for printing this help\n");
+	fprintf(std, "Usage %s -e[dev] [-r/-w] -l[len] -m[mmddev] -p[phyadd] -a[reg] -v[val]\n", name);
+	fprintf(std, "               mmd mode requires mmd dev\n");        
+	fprintf(std, "               -h for printing this help\n");
 }
 
 int main(int argc, char **argv)
 {
 	char devname[64] = {0};
-	int opt, phyaddr = 0, reg = 0, val = 0;	
+	int opt, phyaddr = 0, reg = 0, val = 0, mmddev = 0;	
 	int len = 1, o_devname = 0, o_phyaddr = 0;
 	int o_r = 0, o_w = 0, o_reg = 0, o_val = 0;
-	
+	int o_mmd = 0;
+
 	struct mii_data *mii = (struct mii_data *)&ifr.ifr_data;
 
 	if(argc == 1)
 	{
-		print_help(stdout);
+		print_help(argv[0], stdout);
 		return 0;
 	}
 
-	while ((opt = getopt(argc, argv, "l:hd:rwp:a:v:")) != -1) {
+	while ((opt = getopt(argc, argv, "e:l:hrwm:p:a:v:")) != -1) {
                 switch (opt) {
-                case 'd':
+                case 'e':
                     strncpy(devname, optarg, sizeof(devname));
 		    o_devname = 1;
                     break;
@@ -119,19 +179,26 @@ int main(int argc, char **argv)
 			val = strtol(optarg, NULL, 0);
 			o_val = 1;
 			break;
+		case 'm':
+			o_mmd = 1;
+			mmddev = strtol(optarg, NULL, 0);
+			break;
+
 		case 'h':
-                   print_help(stdout);
+                   print_help(argv[0], stdout);
                    return 0;
 			
                 default: /* '?' */
-                   print_help(stderr);
+                   print_help(argv[0], stderr);
                    exit(EXIT_FAILURE);
                }
            }
 
-#if 0
+#if DEBUG
 	printf("o_devname: %d\n", o_devname);
 	printf("Device: %s\n", devname);
+	printf("o_mmd: %d\n", o_mmd);
+	printf("mmddev: %d\n", mmddev);
 	printf("o_r: %d\n", o_r);
 	printf("o_w: %d\n", o_w);
 	printf("len: %d\n", len);	
@@ -192,14 +259,29 @@ int main(int argc, char **argv)
 	if(o_r) {
 		while(len)
 		{		
-			printf("PHY: %d|REG: %d ---> 0x%04x\n", mii->phy_id, reg, mdio_read(skfd, reg));
+			if(o_mmd)
+			{
+				printf("(MMD)PHY: %d| DEV: %d| REG: %d ---> 0x%04x\n", mii->phy_id, mmddev, reg, mdio_mmd_read(skfd, mmddev, reg));
+			}
+			else
+			{			
+				printf("PHY: %d|REG: %d ---> 0x%04x\n", mii->phy_id, reg, mdio_read(skfd, reg));
+			}
 			len--;
 			reg++;		
 		}
 	}
 	else if(o_w) {
-		printf("PHY: %d|REG: %d <--- 0x%04x\n", mii->phy_id, reg, val);		
-		mdio_write(skfd, reg, val);
+		if(o_mmd)
+		{
+			printf("(MMD)PHY: %d| DEV: %d| REG: %d <--- 0x%04x\n", mii->phy_id, mmddev, reg, val);		
+			mdio_mmd_write(skfd, mmddev, reg, val);
+		}
+		else
+		{
+			printf("PHY: %d|REG: %d <--- 0x%04x\n", mii->phy_id, reg, val);		
+			mdio_write(skfd, reg, val);
+		}
 	}
 	else {
 		printf("Fout!\n");
