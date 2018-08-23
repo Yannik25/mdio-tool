@@ -30,8 +30,8 @@ along with mdio-tool.  If not, see <http://www.gnu.org/licenses/>.
 #include <getopt.h>
 #include <time.h>
 #include <sys/types.h>
-#include <sys/socket.h>
 #include <sys/ioctl.h>
+#include <sys/socket.h>
 #include <net/if.h>
 #include <linux/sockios.h>
 
@@ -71,15 +71,99 @@ static void mdio_write(int skfd, int location, int value)
     }
 }
 
+static void print_help(FILE *std)
+{
+	fprintf(std, "Usage mii-tool -d[dev] [-r/-w] -l[len] -p[phyadd] -a[reg] -v[val]\n");
+        fprintf(std, "               -h for printing this help\n");
+}
 
 int main(int argc, char **argv)
 {
-	int addr, dev, val;
+	char devname[64] = {0};
+	int opt, phyaddr = 0, reg = 0, val = 0;	
+	int len = 1, o_devname = 0, o_phyaddr = 0;
+	int o_r = 0, o_w = 0, o_reg = 0, o_val = 0;
+	
 	struct mii_data *mii = (struct mii_data *)&ifr.ifr_data;
 
-	if(argc < 2) {
-		printf("Usage mii [r/w] [dev] [reg] [val]\n");
+	if(argc == 1)
+	{
+		print_help(stdout);
 		return 0;
+	}
+
+	while ((opt = getopt(argc, argv, "l:hd:rwp:a:v:")) != -1) {
+                switch (opt) {
+                case 'd':
+                    strncpy(devname, optarg, sizeof(devname));
+		    o_devname = 1;
+                    break;
+                case 'r':
+                    o_r = 1;
+                    break;
+		case 'l':
+			len = strtol(optarg, NULL, 0);
+			break;
+		case 'w':
+			o_w = 1;
+			break;
+		case 'p':
+			phyaddr = strtol(optarg, NULL, 0);
+			o_phyaddr = 1;
+			break;
+		case 'a':
+			reg = strtol(optarg, NULL, 0);
+			o_reg = 1;
+			break;
+		case 'v':
+			val = strtol(optarg, NULL, 0);
+			o_val = 1;
+			break;
+		case 'h':
+                   print_help(stdout);
+                   return 0;
+			
+                default: /* '?' */
+                   print_help(stderr);
+                   exit(EXIT_FAILURE);
+               }
+           }
+
+#if 0
+	printf("o_devname: %d\n", o_devname);
+	printf("Device: %s\n", devname);
+	printf("o_r: %d\n", o_r);
+	printf("o_w: %d\n", o_w);
+	printf("len: %d\n", len);	
+	printf("o_phyaddr: %d\n", o_phyaddr);
+	printf("phyaddr: %d\n", phyaddr);
+	printf("o_reg: %d\n", o_reg);
+	printf("reg: %d\n", reg);
+	printf("o_val: %d\n", o_val);
+	printf("val: 0x%04x\n", val);
+#endif
+	if(o_devname == 0)
+	{
+		fprintf(stderr, "Missing ifname, specify -d option\n");
+		exit(EXIT_FAILURE);
+	}
+
+	if(o_r && o_w)
+	{
+		fprintf(stderr, "You cannot specify -r and -w ad the same time\n");
+		exit(EXIT_FAILURE);
+	}	
+	
+	if(o_r && !o_reg)
+	{
+		fprintf(stderr, "-r operation require -a[reg] parameter\n");
+		exit(EXIT_FAILURE);
+	}
+
+	if(o_w && (!o_reg || !o_val ))
+	{
+		fprintf(stderr, "-w operation require -a[reg] and -v[val] parameters\n");
+		exit(EXIT_FAILURE);
 	}
 
 	/* Open a basic socket. */
@@ -89,22 +173,33 @@ int main(int argc, char **argv)
 	}
 
 	/* Get the vitals from the interface. */
-	strncpy(ifr.ifr_name, argv[2], IFNAMSIZ);
+	strncpy(ifr.ifr_name, devname, IFNAMSIZ);
 	if (ioctl(skfd, SIOCGMIIPHY, &ifr) < 0) {
 		if (errno != ENODEV)
 		fprintf(stderr, "SIOCGMIIPHY on '%s' failed: %s\n",
-			argv[2], strerror(errno));
+			devname, strerror(errno));
 		return -1;
 	}
 
-	if(argv[1][0] == 'r') {
-		addr = strtol(argv[3], NULL, 16);
-		printf("0x%.4x\n", mdio_read(skfd, addr));
+	printf("Probed phyaddr: %d\n", mii->phy_id);
+	
+	if(o_phyaddr)
+	{
+		mii->phy_id = phyaddr;
+		printf("Override phy address to: %d\n", mii->phy_id);
 	}
-	else if(argv[1][0] == 'w') {
-		addr = strtol(argv[3], NULL, 16);
-		val = strtol(argv[4], NULL, 16);
-		mdio_write(skfd, addr, val);
+
+	if(o_r) {
+		while(len)
+		{		
+			printf("PHY: %d|REG: %d ---> 0x%04x\n", mii->phy_id, reg, mdio_read(skfd, reg));
+			len--;
+			reg++;		
+		}
+	}
+	else if(o_w) {
+		printf("PHY: %d|REG: %d <--- 0x%04x\n", mii->phy_id, reg, val);		
+		mdio_write(skfd, reg, val);
 	}
 	else {
 		printf("Fout!\n");
