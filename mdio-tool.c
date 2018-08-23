@@ -288,4 +288,6 @@ int main(int argc, char **argv)
 	}
 
 	close(skfd);
+
+	return 0;
 }
