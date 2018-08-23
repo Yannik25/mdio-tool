@@ -7,7 +7,7 @@
  */
 
 #ifndef _NETTOOL_MII_H
-#define _NETTOOLS_MII_H
+#define _NETTOOL_MII_H
 
 #include <linux/sockios.h>
 
