@@ -6,12 +6,12 @@ with all drivers implementing the mdio ioctls.
 
 mdio-tool comes with ABSOLUTELY NO WARRANTY; Use with care!
 
-Syntax:
-Usage mii-tool -e[dev] [-r/-w] -l[len] -m[mmddev] -p[phyadd] -a[reg] -v[val] -s
-
-    			mmd mode requires mmd dev
-    			-s for short output (write gives does no output)
-                -h for printing this help
+# Syntax:
+Usage mdio-tool -e[dev] [-r/-w] -l[len] -m[mmddev] -p[phyadd] -a[reg] -v[val] -s
+```
+    	mmd mode requires mmd dev
+    	-s for short output (write gives does no output)
+        -h for printing this help
 
     	sudo mdio-tool -e eth0 -r -a 0 -l 5
     	Probed phyaddr: 0
@@ -29,4 +29,4 @@ Usage mii-tool -e[dev] [-r/-w] -l[len] -m[mmddev] -p[phyadd] -a[reg] -v[val] -s
     	PHY: 0|REG: 0 <--- 0x1340
 
     	sudo mdio-tool -e eth0 -w -a 0 -v 0x1340 -s (gives no output)
-
+```
